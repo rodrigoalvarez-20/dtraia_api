@@ -1,0 +1,6 @@
+venv/
+logs/
+documents/
+out_docs/
+__pycache__/
+*.cfg
