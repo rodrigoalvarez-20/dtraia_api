@@ -59,5 +59,3 @@ def decipher_rsa(enc_hex_text):
 def hash_data(raw_data):
     return hashlib.sha256(raw_data.encode()).hexdigest()
 
-
-    
