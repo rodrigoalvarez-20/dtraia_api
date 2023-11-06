@@ -27,10 +27,11 @@ def register_user(user_data: RegisterUserModel, log = None, db = None):
             }
         )
     
-    created_user_json = json.loads(user_data.model_dump_json())
+    created_user_json = json.loads(user_data.json())
     
     created_user_json["createdDate"] = datetime.now().isoformat()
     created_user_json["chatsId"] = []
+    created_user_json["gns3_projects"] = []
     created_user_json["profilePic"] = "default.png"
     
     try:
@@ -105,7 +106,29 @@ def login_user(user_data: LoginUserModel, log = None, db = None):
             "user": user_in_db
         }
     )
+
+
+@users_router.get("/profile")
+@dtraia_decorator("users", "users")
+def get_user_profile(request: Request, log = None, db = None):
+    request_status = validate_request(request)
+    if request_status["status"] != 200:
+        return JSONResponse(status_code=request_status["status"], content={"error": request_status["error"]})
+
+    user_email = request_status["email"]
+    user_info = db.find_one({ "email": user_email }, { "_id": 0, "password": 0 })
+    if not user_info:
+        log.info("Error al recuperar la informacion del usuario {}. El usuario no existe".format(user_email))
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "Ha ocurrido un error al recuperar el perfil del usuario"
+            }
+        )
     
+
+    return JSONResponse(status_code=200, content=user_info)
+
     
 @users_router.get("/chat_history")
 @dtraia_decorator("api","chat",True)
@@ -129,6 +152,10 @@ def get_user_chats(chat_id: str, request: Request, log = None, db = None):
         )
     
     user_chats = user_info["chatsId"]
+
+    #print(user_chats)
+
+    #list_of_ids = [ x["chat_id"] for x in user_chats ]
     
     if not chat_id in user_chats:
         log.warning("El chat {} no se encuentra en el perfil del usuario {}".format(chat_id, user_email))
@@ -140,20 +167,31 @@ def get_user_chats(chat_id: str, request: Request, log = None, db = None):
         )
         
     
-    chat_messages = list(db["chats"].find({ "session_id": chat_id }))
+    chat_messages = list(db["conversations"].find({ "chat_id": chat_id }, { "_id": 0 }))
     
-    log.debug("Total de mensajes recuperados: {} - SessionID: {} ".format(len(chat_messages), chat_id))
+    fmt_messages = []
+
+    for m in chat_messages:
+        json_msg = json.loads(m["message_info"])
+        #message_data = json_msg["data"]
+        fmt_messages.append({
+            "type": json_msg["type"],
+            "message": json_msg["data"]["content"],
+            "datetime": json_msg["createdAt"]
+        })
+
+    log.debug("Total de mensajes recuperados: {} - SessionID: {} ".format(len(fmt_messages), chat_id))
     
     return JSONResponse(
         status_code=200,
         content={
-            "messages": chat_messages
+            "messages": fmt_messages
         }
     )
 
 
-@users_router.post("/new")
-@dtraia_decorator("api", "chat", True)
+@users_router.post("/new_chat")
+@dtraia_decorator("api", "users")
 def create_new_chat_for_user(request: Request, log = None, db = None):
     request_status = validate_request(request)
     if request_status["status"] != 200:
@@ -161,7 +199,7 @@ def create_new_chat_for_user(request: Request, log = None, db = None):
 
     user_email = request_status["email"]
     
-    user_info = db["users"].find_one({ "email": user_email })
+    user_info = db.find_one({ "email": user_email })
     if not user_info:
         log.info("Error al crear un nuevo chat para el usuario {}. El usuario no existe".format(user_email))
         return JSONResponse(
@@ -171,11 +209,9 @@ def create_new_chat_for_user(request: Request, log = None, db = None):
             }
         )
     
-    
     new_chat_id = "".join(str(uuid4().hex).split("-"))[:15]
-    
-    db["users"].update_one({ "email": user_email }, { "$push": { "chatsId": new_chat_id } })
-    
+    actual_time = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+    db.update_one({ "email": user_email }, { "$push": { "chatsId": { "datetime": actual_time , "name": new_chat_id, "chat_id": new_chat_id } } })
     log.debug("Chat con el ID {} creado para el usuario {}".format(new_chat_id, user_email))
     
     return JSONResponse(

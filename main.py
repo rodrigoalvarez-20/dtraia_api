@@ -15,22 +15,21 @@ from dtraia_api.utils.decorators import dtraia_decorator
 from dtraia_api.models.chats import MessageChat
 
 # LLM
-from dtraia_llm.models.llama2 import Llama2
+from dtraia_llm.main import build_llm_pipeline, build_llm_w_memory
+from dtraia_llm.utils.agent_memory import print_agent_memory
 
-global llama_model
+global convo_pipeline
+global convo_tools
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Load the ML model
-    global llama_model
-    llama_model = Llama2(
-        model_name="local", 
-        quant=True,
-        _4bits=True,
-        double_quant=True
-    )
+    global convo_pipeline
+    global convo_tools
+    convo_pipeline, convo_tools = build_llm_pipeline()
     yield
-    del llama_model
+    del convo_pipeline
+    del convo_tools
     torch.cuda.empty_cache()
     #sync; echo 1 > /proc/sys/vm/drop_caches
     # Clean up the ML models and release the resources
@@ -64,9 +63,9 @@ def start_route():
     )
 
 ### Chat Route
-@app.post("/api/message/{chat_id}")
+@app.post("/api/chat/{chat_id}")
 @dtraia_decorator("api", "chat", True)
-def chat_with_ia(chat_id: str, version: str, user_message: MessageChat, request: Request, use_mongo: bool = True, log = None, db = None):
+def chat_with_ia(chat_id: str, user_message: MessageChat, request: Request, use_mongo: bool = True, log = None, db = None):
     request_status = validate_request(request)
     if request_status["status"] != 200:
         return JSONResponse(status_code=request_status["status"], content={"error": request_status["error"]})
@@ -83,26 +82,29 @@ def chat_with_ia(chat_id: str, version: str, user_message: MessageChat, request:
             }
         )
 
-    #user_chats = user_info["chatsId"]
+    user_chats = user_info["chatsId"]
     
-    #if not chat_id in user_chats:
-    #    log.warning("El chat {} no se encuentra en el perfil del usuario {}".format(chat_id, user_email))
-    #    return JSONResponse(
-    #        status_code=404,
-    #        content={
-    #            "error": "No se ha encontrado el chat indicado en el perfil del usuario"
-    #        }
-    #    )
+    if not chat_id in user_chats:
+        log.warning("El chat {} no se encuentra en el perfil del usuario {}".format(chat_id, user_email))
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": "No se ha encontrado el chat indicado en el perfil del usuario"
+            }
+        )
 
-    if version == "v1":
-        llm_response = llama_model.generate(user_message.question)
-    else:
-        llm_response = llama_model.pipeline_generate(user_message.question)
+    global convo_pipeline
+    global convo_tools
+
+    convo_agent = build_llm_w_memory(convo_pipeline, convo_tools, chat_id)
+
+    print(convo_agent.memory.chat_memory.messages)
+
+    convo_response = convo_agent(user_message.question)
 
     return JSONResponse(status_code=200, content={
-        "message": llm_response
+        "message": convo_response["output"]
     })
-
 
 if __name__ == "__main__":
     PORT = os.environ["PORT"] if "PORT" in os.environ else "5000"
