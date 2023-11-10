@@ -8,7 +8,7 @@ import json
 from dtraia_api.models.users import LoginUserModel, RegisterUserModel
 from dtraia_api.utils.decorators import dtraia_decorator
 from dtraia_api.utils.auth import generate_login_token, validate_request
-
+from dtraia_api.utils.common import dec_rsa_front
 
 users_router = APIRouter(prefix="/users")
 
@@ -33,6 +33,7 @@ def register_user(user_data: RegisterUserModel, log = None, db = None):
     created_user_json["chatsId"] = []
     created_user_json["gns3_projects"] = []
     created_user_json["profilePic"] = "default.png"
+    created_user_json["password"] = dec_rsa_front(created_user_json["password"] )
     
     try:
         inserted_user = db.insert_one(created_user_json)
@@ -81,8 +82,10 @@ def login_user(user_data: LoginUserModel, log = None, db = None):
                 "error": "El usuario no se encuentra registrado"
             }
         )
+    
+    dec_pwd = dec_rsa_front(user_data.password)
 
-    if user_data.password != user_in_db["password"]:
+    if dec_pwd != user_in_db["password"]:
         log.error("Las contraseñas no coinciden. Usuario {}".format(user_data.email))
         return JSONResponse(
             status_code=400,
@@ -155,9 +158,9 @@ def get_user_chats(chat_id: str, request: Request, log = None, db = None):
 
     #print(user_chats)
 
-    #list_of_ids = [ x["chat_id"] for x in user_chats ]
+    list_of_ids = [ x["chat_id"] for x in user_chats ]
     
-    if not chat_id in user_chats:
+    if not chat_id in list_of_ids:
         log.warning("El chat {} no se encuentra en el perfil del usuario {}".format(chat_id, user_email))
         return JSONResponse(
             status_code=404,
@@ -211,13 +214,14 @@ def create_new_chat_for_user(request: Request, log = None, db = None):
     
     new_chat_id = "".join(str(uuid4().hex).split("-"))[:15]
     actual_time = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
-    db.update_one({ "email": user_email }, { "$push": { "chatsId": { "datetime": actual_time , "name": new_chat_id, "chat_id": new_chat_id } } })
+    chat_inserted = { "datetime": actual_time , "name": new_chat_id, "chat_id": new_chat_id }
+    db.update_one({ "email": user_email }, { "$push": { "chatsId": chat_inserted } })
     log.debug("Chat con el ID {} creado para el usuario {}".format(new_chat_id, user_email))
     
     return JSONResponse(
         status_code=201,
         content={
             "message": "Se ha creado correctamente el chat",
-            "chat_id": new_chat_id
+            "chat_info": chat_inserted
         }
     )

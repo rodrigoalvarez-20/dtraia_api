@@ -13,12 +13,12 @@ from dtraia_api.utils.common import load_private_key, get_raw_private_key, get_r
 
 # TODO Firmar con email + id y agregar el tiempo de duracion
 def generate_login_token(id: str, email : str, htl = 4):
-    exp_date = datetime.now(tz=timezone.utc) + timedelta(hours=htl)
+    exp_date = datetime.now() + timedelta(hours=htl)
     payload = {
         "id": id,
         "email": email,
-        "rd": random.randint(0, 1000000),
-        "exp": exp_date
+        "rd": random.randint(0, 1000000)
+        #"exp": exp_date
     }
 
     private_key = load_private_key()

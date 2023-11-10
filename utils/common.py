@@ -2,6 +2,10 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
+from Crypto.Cipher import PKCS1_OAEP
+from Crypto.PublicKey import RSA
+from Crypto.Hash import SHA256
+from base64 import b64decode
 import os
 import hashlib
 
@@ -9,7 +13,7 @@ KEYS_DIR = os.environ["KEYS_DIR"] if "KEYS_DIR" in os.environ else "{}/keys".for
 
 
 def load_private_key():
-    with open(KEYS_DIR + "/dtraia_server.key", "rb") as key_file:
+    with open(KEYS_DIR + "/dtraia_priv.pem", "rb") as key_file:
         private_key = serialization.load_pem_private_key(
             key_file.read(),
             password=None,
@@ -59,3 +63,9 @@ def decipher_rsa(enc_hex_text):
 def hash_data(raw_data):
     return hashlib.sha256(raw_data.encode()).hexdigest()
 
+
+def dec_rsa_front(enc_text):
+    private_file = KEYS_DIR + "/dtraia_priv.pem"
+    private_key = RSA.import_key(open(private_file).read())
+    rsa_key = PKCS1_OAEP.new(private_key, hashAlgo=SHA256)
+    return rsa_key.decrypt(b64decode(enc_text)).decode()

@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI):
     # Load the ML model
     global convo_pipeline
     global convo_tools
-    convo_pipeline, convo_tools = build_llm_pipeline()
+    convo_pipeline, convo_tools = build_llm_pipeline(model_name="local_llama2_chat_13b_ft")
     yield
     del convo_pipeline
     del convo_tools
@@ -83,8 +83,10 @@ def chat_with_ia(chat_id: str, user_message: MessageChat, request: Request, use_
         )
 
     user_chats = user_info["chatsId"]
+
+    list_of_ids = [ x["chat_id"] for x in user_chats ]
     
-    if not chat_id in user_chats:
+    if not chat_id in list_of_ids:
         log.warning("El chat {} no se encuentra en el perfil del usuario {}".format(chat_id, user_email))
         return JSONResponse(
             status_code=404,
