@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request#, WebSocket, WebSocketException, status
-from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 from contextlib import asynccontextmanager
 import uvicorn
@@ -9,29 +9,36 @@ import torch
 ### Custom imports
 
 from dtraia_api.routes.users import users_router
-#from dtraia_api.routes.chat import chat_app
+from dtraia_api.routes.rate_message import rates_router
+
 from dtraia_api.utils.auth import validate_request, auth
 from dtraia_api.utils.decorators import dtraia_decorator
 from dtraia_api.models.chats import MessageChat
 
 # LLM
-from dtraia_llm.main import build_llm_pipeline, build_llm_w_memory
-from dtraia_llm.utils.agent_memory import print_agent_memory
+#from dtraia_llm.main import load_pipeline, create_conversational_agent, create_agent_executor
+#from dtraia_llm.memory.llm_memory import build_memory
+#from dtraia_llm.utils.agent_memory import print_agent_memory
+from dtraia_llm.main import manual_conversation
+from dtraia_llm.models.llama2 import Llama2
+from dtraia_llm.models.lamini_flan import LaminiT5
 
-global convo_pipeline
-global convo_tools
+global llama_2
+global convo_agent
+global lamini_t5
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Load the ML model
-    global convo_pipeline
-    global convo_tools
-    convo_pipeline, convo_tools = build_llm_pipeline(model_name="local_llama2_chat_13b_ft")
+    global llama_2
+    global lamini_t5
+    #llama_2 = Llama2(quant=True, _4bits=True, double_quant=False, device_map={"": 1})
+    #lamini_t5 = LaminiT5(device_map={ "": 1})
     yield
-    del convo_pipeline
-    del convo_tools
+    del llama_2
     torch.cuda.empty_cache()
     #sync; echo 1 > /proc/sys/vm/drop_caches
+    #sudo swapoff -a; sudo swapon -a
     # Clean up the ML models and release the resources
 
 
@@ -50,6 +57,7 @@ app.add_middleware(
 
 #app.add_websocket_route("/api/chat", chat_websocket)
 app.include_router(router=users_router, prefix="/api")
+app.include_router(router=rates_router, prefix="/api")
 #app.mount("/api", chat_app)
 
 @app.get("/api")
@@ -61,6 +69,14 @@ def start_route():
             "message": "Ok"
         }
     )
+
+@app.options("*")
+def cors_handle():
+    print("Options requested")
+    response_headers = {"Access-Control-Allow-Origin": "*"}
+    return JSONResponse(status_code=200,
+        content={},
+        headers=response_headers)
 
 ### Chat Route
 @app.post("/api/chat/{chat_id}")
@@ -86,7 +102,7 @@ def chat_with_ia(chat_id: str, user_message: MessageChat, request: Request, use_
 
     list_of_ids = [ x["chat_id"] for x in user_chats ]
     
-    if not chat_id in list_of_ids:
+    if chat_id not in list_of_ids:
         log.warning("El chat {} no se encuentra en el perfil del usuario {}".format(chat_id, user_email))
         return JSONResponse(
             status_code=404,
@@ -95,20 +111,29 @@ def chat_with_ia(chat_id: str, user_message: MessageChat, request: Request, use_
             }
         )
 
-    global convo_pipeline
-    global convo_tools
+    global llama_2
+    global lamini_t5
 
-    convo_agent = build_llm_w_memory(convo_pipeline, convo_tools, chat_id)
+    try:
+        ai_response = manual_conversation(llama_2, chat_id, user_message.question)
+    except Exception as omex:
+        print(omex)
+        ai_response = manual_conversation(llama_2, chat_id, user_message.question)
+    finally:
+        torch.cuda.empty_cache()    
+    
+    question_topic : str = lamini_t5.process_text(user_message.question)
 
-    print(convo_agent.memory.chat_memory.messages)
+    question_topic = question_topic.replace("\"", "")
 
-    convo_response = convo_agent(user_message.question)
+    db["users"].update_one({ "email": user_email, "chatsId.chat_id": chat_id }, { "$set": { "chatsId.$.name": question_topic } }, False)
 
     return JSONResponse(status_code=200, content={
-        "message": convo_response["output"]
+        "message": ai_response,
+        "topic": question_topic
     })
 
 if __name__ == "__main__":
-    PORT = os.environ["PORT"] if "PORT" in os.environ else "5000"
+    PORT = os.environ["PORT"] if "PORT" in os.environ else 5000
     uvicorn.run(app, host="0.0.0.0", port=PORT)
     

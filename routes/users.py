@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 from datetime import datetime
 from uuid import uuid4
 import json
+from bson.objectid import ObjectId
 
 ## Custom imports
 from dtraia_api.models.users import LoginUserModel, RegisterUserModel
@@ -17,6 +18,8 @@ users_router = APIRouter(prefix="/users")
 @dtraia_decorator("users", "users")
 def register_user(user_data: RegisterUserModel, log = None, db = None):
     log.debug("Iniciando registro del usuario: {}".format(user_data.email))
+
+    response_headers = {"Access-Control-Allow-Origin": "*"}
     
     if db.find_one({ "email": user_data.email }):
         log.error("El usuario {} ya se encuentra registrado".format(user_data.email))
@@ -24,7 +27,8 @@ def register_user(user_data: RegisterUserModel, log = None, db = None):
             status_code=400,
             content={
                 "error": "El usuario ya se encuentra registrado"
-            }
+            },
+            headers=response_headers
         )
     
     created_user_json = json.loads(user_data.json())
@@ -54,7 +58,8 @@ def register_user(user_data: RegisterUserModel, log = None, db = None):
             content={
                 "message": "Se ha registrado correctamente el usuario",
                 "user": created_user_json
-            }
+            },
+            headers=response_headers
         )
         
     except Exception as ex:
@@ -63,7 +68,8 @@ def register_user(user_data: RegisterUserModel, log = None, db = None):
             status_code=500,
             content={
                 "error": "Ha ocurrido un error al registrar el usuario, por favor intente de nuevo."
-            }
+            },
+            headers=response_headers
         )
 
 
@@ -73,6 +79,10 @@ def login_user(user_data: LoginUserModel, log = None, db = None):
     log.debug("Iniciando login del usuario: {}".format(user_data.email))
     
     user_in_db = db.find_one({ "email": user_data.email })
+
+    #response.headers["Access-Control-Allow-Origin"] = "*"
+
+    response_headers = {"Access-Control-Allow-Origin": "*"}
     
     if not user_in_db:
         log.error("El usuario {} no se encuentra registrado".format(user_data.email))
@@ -80,7 +90,8 @@ def login_user(user_data: LoginUserModel, log = None, db = None):
             status_code=404,
             content={
                 "error": "El usuario no se encuentra registrado"
-            }
+            },
+            headers=response_headers
         )
     
     dec_pwd = dec_rsa_front(user_data.password)
@@ -91,7 +102,8 @@ def login_user(user_data: LoginUserModel, log = None, db = None):
             status_code=400,
             content={
                 "error": "Las credenciales son incorrectas"
-            }
+            },
+            headers=response_headers
         )
         
     log.info("Inicio de sesion correcto del usuario: {}".format(user_data.email))
@@ -107,7 +119,8 @@ def login_user(user_data: LoginUserModel, log = None, db = None):
         content={
             "message": "Inicio de sesion correcto",
             "user": user_in_db
-        }
+        },
+        headers=response_headers
     )
 
 
@@ -160,7 +173,7 @@ def get_user_chats(chat_id: str, request: Request, log = None, db = None):
 
     list_of_ids = [ x["chat_id"] for x in user_chats ]
     
-    if not chat_id in list_of_ids:
+    if  chat_id not in list_of_ids:
         log.warning("El chat {} no se encuentra en el perfil del usuario {}".format(chat_id, user_email))
         return JSONResponse(
             status_code=404,
@@ -170,17 +183,18 @@ def get_user_chats(chat_id: str, request: Request, log = None, db = None):
         )
         
     
-    chat_messages = list(db["conversations"].find({ "chat_id": chat_id }, { "_id": 0 }))
+    chat_messages = list(db["conversations"].find({ "chat_id": chat_id }))
     
     fmt_messages = []
 
     for m in chat_messages:
         json_msg = json.loads(m["message_info"])
-        #message_data = json_msg["data"]
         fmt_messages.append({
+            "_id": str(m["_id"]),
             "type": json_msg["type"],
             "message": json_msg["data"]["content"],
-            "datetime": json_msg["createdAt"]
+            "datetime": json_msg["createdAt"],
+            "rate": m["rate"] if "rate" in m else None
         })
 
     log.debug("Total de mensajes recuperados: {} - SessionID: {} ".format(len(fmt_messages), chat_id))
@@ -223,5 +237,52 @@ def create_new_chat_for_user(request: Request, log = None, db = None):
         content={
             "message": "Se ha creado correctamente el chat",
             "chat_info": chat_inserted
+        }
+    )
+
+
+@users_router.post("/delete_chat")
+@dtraia_decorator("api", "users", True)
+def delete_user_chat(chat_id: str, request: Request, log = None, db = None):
+    request_status = validate_request(request)
+    if request_status["status"] != 200:
+        return JSONResponse(status_code=request_status["status"], content={"error": request_status["error"]})
+
+    user_email = request_status["email"]
+    
+    user_info = db["users"].find_one({ "email": user_email })
+    if not user_info:
+        log.info("Error al eliminar el chat del usuario {}. El usuario no existe".format(user_email))
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "Ha ocurrido un error al recuperar el perfil del usuario"
+            }
+        )
+    
+    user_chats = user_info["chatsId"]
+    list_of_ids = [ x["chat_id"] for x in user_chats ]
+    
+    if not chat_id in list_of_ids:
+        log.warning("El chat {} no se encuentra en el perfil del usuario {}".format(chat_id, user_email))
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": "No se ha encontrado el chat indicado en el perfil del usuario"
+            }
+        )
+
+    conv_resp = db["conversations"].delete_many({ "chat_id": chat_id })
+
+    log.info("Se han eliminado {} chats de la tabla de conversaciones".format(conv_resp.deleted_count))
+
+    db["users"].update_one({ "email": user_email }, { "$pull": { "chatsId": { "chat_id": chat_id  } } }, False)
+    
+    log.info("Se ha eliminado el chat del perfil del usuario")
+    
+    return JSONResponse(
+        status_code=200,
+        content={
+            "message": "Se ha eliminado correctamente el chat"
         }
     )
