@@ -37,9 +37,10 @@ def dtraia_decorator(log_alias = None, mongo_alias = None, mongo_connection = Fa
                     os.makedirs(path_to_log, exist_ok=True)
                     path_to_log += "/" + filename
                     #print(path_to_log)
+                    
                     logging.basicConfig(
                     format="=== %(asctime)s::%(levelname)s::%(funcName)s === %(message)s", filename=path_to_log, level=logging.DEBUG)
-                    log = logging.getLogger("DTRAIA_SERVER_{}".format(log_alias.upper()))
+                    log = logging.getLogger("DTRAIA_SERVICE")
                     
                 kwargs["log"] = log
 
