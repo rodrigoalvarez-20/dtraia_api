@@ -17,3 +17,15 @@ def get_mongo_creds():
     else:
         print("Config file error: MONGO options not found")
         sys.exit(-1)
+        
+def get_email_creds():
+    cfg.read("{}/config.cfg".format(BASE_CONFIG_ROUTE))
+    
+    if cfg.has_option("EMAIL", "CORREO") and cfg.has_option("EMAIL", "PWD"):
+        email = cfg.get("EMAIL", "CORREO")
+        pwd = cfg.get("EMAIL", "PWD")
+
+        return email, pwd
+    else:
+        print("Config file error: EMAIL options not found")
+        sys.exit(-1)

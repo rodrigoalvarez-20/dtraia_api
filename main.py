@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Request#, WebSocket, WebSocketException, status
+from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 from contextlib import asynccontextmanager
@@ -10,18 +11,19 @@ import torch
 
 from dtraia_api.routes.users import users_router
 from dtraia_api.routes.rate_message import rates_router
+from dtraia_api.routes.executor import exec_router
 
-from dtraia_api.utils.auth import validate_request, auth
+from dtraia_api.utils.auth import validate_request
 from dtraia_api.utils.decorators import dtraia_decorator
+from dtraia_api.utils.webdriver import auto_install_driver
 from dtraia_api.models.chats import MessageChat
 
 # LLM
-#from dtraia_llm.main import load_pipeline, create_conversational_agent, create_agent_executor
-#from dtraia_llm.memory.llm_memory import build_memory
-#from dtraia_llm.utils.agent_memory import print_agent_memory
 from dtraia_llm.main import manual_conversation
 from dtraia_llm.models.llama2 import Llama2
 from dtraia_llm.models.lamini_flan import LaminiT5
+
+base_path = os.path.dirname(__file__)
 
 global llama_2
 global convo_agent
@@ -32,8 +34,15 @@ async def lifespan(app: FastAPI):
     # Load the ML model
     global llama_2
     global lamini_t5
-    #llama_2 = Llama2(quant=True, _4bits=True, double_quant=False, device_map={"": 1})
-    #lamini_t5 = LaminiT5(device_map={ "": 1})
+    #
+    driver_path = os.path.join(base_path, "extras")
+    if not os.path.exists(driver_path):
+        _ = auto_install_driver(driver_path)
+    # "Rodr16020/llama-2-13b-chat-gns3-python"
+    # 
+    gns3_adapter = os.environ.get("GNS3_ADAPTER", "/home/ralvarez22/Documentos/dtraia/fine-tuned/Seele_Vollerei/v_2/final" ) 
+    llama_2 = Llama2(quant=True, _4bits=True, double_quant=False, device_map="auto", custom_adapter=gns3_adapter)
+    lamini_t5 = LaminiT5(device_map="auto")
     yield
     del llama_2
     torch.cuda.empty_cache()
@@ -55,10 +64,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-#app.add_websocket_route("/api/chat", chat_websocket)
+app.mount("/static", StaticFiles(directory= os.path.join(base_path, "static")), name="static")
+
 app.include_router(router=users_router, prefix="/api")
 app.include_router(router=rates_router, prefix="/api")
-#app.mount("/api", chat_app)
+app.include_router(router=exec_router, prefix="/api")
 
 @app.get("/api")
 def start_route():
@@ -115,10 +125,10 @@ def chat_with_ia(chat_id: str, user_message: MessageChat, request: Request, use_
     global lamini_t5
 
     try:
-        ai_response = manual_conversation(llama_2, chat_id, user_message.question)
+        ai_response = manual_conversation(llama_2, chat_id, user_message.question, messages_window=4)
     except Exception as omex:
         print(omex)
-        ai_response = manual_conversation(llama_2, chat_id, user_message.question)
+        ai_response = manual_conversation(llama_2, chat_id, user_message.question, messages_window=4)
     finally:
         torch.cuda.empty_cache()    
     
