@@ -1,15 +1,17 @@
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Request, Form, UploadFile
 from fastapi.responses import JSONResponse
 from datetime import datetime
 from uuid import uuid4
 import json
 from bson.objectid import ObjectId
-
+from typing import Optional
+import os
 ## Custom imports
 from dtraia_api.models.users import LoginUserModel, RegisterUserModel
 from dtraia_api.utils.decorators import dtraia_decorator
 from dtraia_api.utils.auth import generate_login_token, validate_request
 from dtraia_api.utils.common import dec_rsa_front
+from dtraia_api.utils.mailing import send_message
 
 users_router = APIRouter(prefix="/users")
 
@@ -31,7 +33,7 @@ def register_user(user_data: RegisterUserModel, log = None, db = None):
             headers=response_headers
         )
     
-    created_user_json = json.loads(user_data.json())
+    created_user_json = json.loads(user_data.json()) 
     
     created_user_json["createdDate"] = datetime.now().isoformat()
     created_user_json["chatsId"] = []
@@ -136,7 +138,7 @@ def get_user_profile(request: Request, log = None, db = None):
     if not user_info:
         log.info("Error al recuperar la informacion del usuario {}. El usuario no existe".format(user_email))
         return JSONResponse(
-            status_code=400,
+            status_code=404,
             content={
                 "error": "Ha ocurrido un error al recuperar el perfil del usuario"
             }
@@ -263,7 +265,7 @@ def delete_user_chat(chat_id: str, request: Request, log = None, db = None):
     user_chats = user_info["chatsId"]
     list_of_ids = [ x["chat_id"] for x in user_chats ]
     
-    if not chat_id in list_of_ids:
+    if chat_id not in list_of_ids:
         log.warning("El chat {} no se encuentra en el perfil del usuario {}".format(chat_id, user_email))
         return JSONResponse(
             status_code=404,
@@ -286,3 +288,132 @@ def delete_user_chat(chat_id: str, request: Request, log = None, db = None):
             "message": "Se ha eliminado correctamente el chat"
         }
     )
+
+@users_router.post("/delete_profile")
+@dtraia_decorator("api", "users", True)
+def delete_user_chat(request: Request, log = None, db = None):
+    request_status = validate_request(request)
+    if request_status["status"] != 200:
+        return JSONResponse(status_code=request_status["status"], content={"error": request_status["error"]})
+
+    user_email = request_status["email"]
+    
+    user_info = db["users"].find_one({ "email": user_email })
+    if not user_info:
+        log.info("Error al eliminar el perfil del usuario {}. El usuario no existe".format(user_email))
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "Ha ocurrido un error al recuperar el perfil del usuario"
+            }
+        )
+    
+    user_chats = user_info["chatsId"]
+    chats_ids = [ x["chat_id"] for x in user_chats ]
+    
+    db["users"].delete_one({ "email": user_email })
+    
+    if len(chats_ids) > 0:
+        db["conversations"].delete_many({ "chat_id": { "$in": chats_ids } })
+
+
+    log.info("Se ha eliminado el perfil del usuario")
+    
+    return JSONResponse(
+        status_code=200,
+        content={
+            "message": "Se ha eliminado correctamente el perfil"
+        }
+    )
+    
+@users_router.post("/recover_password")
+@dtraia_decorator("api", "users")
+def recover_password(user_data: LoginUserModel, request: Request, log = None, db=None):
+    
+    user_info = db.find_one({ "email": user_data.email }, { "password": 0 })
+    if not user_info:
+        log.info("Error al recuperar la informacion del usuario {}. El usuario no existe".format(user_data.email))
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": "Ha ocurrido un error al recuperar el perfil del usuario. El usuario no existe"
+            }
+        )
+    
+    recover_token = generate_login_token(str(user_info["_id"]), user_info["email"])
+    fmt_url = "{}recover_password?token={}".format(request.base_url, recover_token)
+    
+    send_message(user_info["email"], template_params={"username": user_info["nombre"], "email": user_info["email"], "restore_url": fmt_url})
+    
+    
+    return JSONResponse(status_code=200, content={ "message": "Se ha enviado el correo de restauración" })
+    
+@users_router.post("/reset_password")
+@dtraia_decorator("api", "users")
+def reset_user_password(user_data: LoginUserModel, request: Request, log = None, db = None):
+    request_status = validate_request(request)
+    if request_status["status"] != 200:
+        return JSONResponse(status_code=request_status["status"], content={"error": request_status["error"]})
+    response_headers = {"Access-Control-Allow-Origin": "*"}
+    user_email = request_status["email"]
+    user_info = db.find_one({ "email": user_email }, { "_id": 0, "password": 0 })
+    if not user_info:
+        log.info("Error al recuperar la informacion del usuario {}. El usuario no existe".format(user_email))
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": "Ha ocurrido un error al recuperar el perfil del usuario"
+            },
+            headers=response_headers
+        )
+        
+    rcv_password = dec_rsa_front(user_data.password)
+    
+    db.update_one({ "email": user_email }, { "$set": { "password": rcv_password } })
+    
+    log.info("Se ha actualizado la contraseña del usuario: {}".format(user_email))
+    
+    return JSONResponse(
+        status_code=200,
+        content={
+            "message": "Se ha actualizado correctamente la contraseña"
+        }
+    )
+    
+@users_router.patch("/profile")
+@dtraia_decorator("api", "users")
+def update_user_profile(request: Request, nombre: str = Form(), pfp: Optional[UploadFile] = None, log = None, db = None):
+    request_status = validate_request(request)
+    if request_status["status"] != 200:
+        return JSONResponse(status_code=request_status["status"], content={"error": request_status["error"]})
+    response_headers = {"Access-Control-Allow-Origin": "*"}
+    user_email = request_status["email"]
+    user_info = db.find_one({ "email": user_email }, { "password": 0 })
+    if not user_info:
+        log.info("Error al recuperar la informacion del usuario {}. El usuario no existe".format(user_email))
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": "Ha ocurrido un error al recuperar el perfil del usuario"
+            },
+            headers=response_headers
+        )
+    
+    update_params = {
+        "nombre": nombre
+    }
+    
+    if pfp:
+        save_path = os.path.join(os.getcwd(), "static")
+        save_filename = str(user_info["_id"]) + "." + pfp.filename.split(".")[-1]
+        with open(os.path.join(save_path, save_filename), "wb") as f:
+            pfp.file.seek(0)
+            file_content = pfp.file.read()
+            f.write(file_content)
+        update_params["profilePic"] = save_filename
+    
+    db.update_one({ "email": user_email }, { "$set": update_params })
+        
+    user_info = db.find_one({ "email": user_email }, { "_id": 0, "password": 0 })
+    
+    return JSONResponse(status_code=200, content = {"message": "Se ha actualizado correctamente el perfil", "info": user_info})

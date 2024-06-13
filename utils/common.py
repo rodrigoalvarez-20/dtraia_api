@@ -1,3 +1,10 @@
+"""
+DTRAIA_API - Research Project
+Script for execute the generated code by the LLM and take a snapshot of the topolgy.
+Authors: Rodrigo Alvarez, Adrian Rodriguez, Uriel Perez
+Created on: 2023 
+"""
+
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding

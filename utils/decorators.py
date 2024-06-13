@@ -1,3 +1,10 @@
+"""
+DTRAIA_API - Research Project
+Script to create the main decorator for the API and LLM proyects
+Authors: Rodrigo Alvarez, Adrian Rodriguez, Uriel Perez
+Created on: 2023 
+"""
+
 from functools import wraps
 from datetime import datetime
 import logging
@@ -12,6 +19,7 @@ from dtraia_api.utils.mongo import get_mongo_connection
 # 3. LLM
 # 4. General
 
+# Folder path where to put the logs
 LOGS_FOLDER = os.environ.get("LOGS_PATH") if "LOGS_PATH" in os.environ else os.getcwd()
 
 BASE_PATH = LOGS_FOLDER + "/logs"
@@ -19,6 +27,7 @@ BASE_PATH = LOGS_FOLDER + "/logs"
 if not os.path.isdir(BASE_PATH):
     os.mkdir(BASE_PATH)
 
+# Defined Routes for Logs
 routes = {
     "api": f"{BASE_PATH}/api_general",
     "users": f"{BASE_PATH}/users",
@@ -27,6 +36,13 @@ routes = {
 }
 
 def dtraia_decorator(log_alias = None, mongo_alias = None, mongo_connection = False):
+    """
+    Decorator function to create the logger and MongoDB connection
+    Args:
+        - log_alias: Name of the logger type to use (defined in `routes` dict)
+        - mongo_alias: If used, needs to specify the collection to connect
+        - mongo_connection: Boolean value indicating to return the general MongoDB connection
+    """
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -36,7 +52,6 @@ def dtraia_decorator(log_alias = None, mongo_alias = None, mongo_connection = Fa
                     path_to_log = routes[log_alias] if log_alias in routes else routes["api"]
                     os.makedirs(path_to_log, exist_ok=True)
                     path_to_log += "/" + filename
-                    #print(path_to_log)
                     
                     logging.basicConfig(
                     format="=== %(asctime)s::%(levelname)s::%(funcName)s === %(message)s", filename=path_to_log, level=logging.DEBUG)
@@ -50,7 +65,6 @@ def dtraia_decorator(log_alias = None, mongo_alias = None, mongo_connection = Fa
                     
             except Exception as ex:
                 print(ex)
-                #send_telegram_notification("CRITICAL", f"Ha ocurrido un error en el decorador: {ex}", "Decorator")
                 sys.exit(-1)
             return func(*args, **kwargs)
         return wrapper

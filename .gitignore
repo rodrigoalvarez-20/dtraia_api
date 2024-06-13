@@ -5,3 +5,5 @@ out_docs/
 __pycache__/
 *.cfg
 .pytest_cache/
+extras/
+tests/exec
