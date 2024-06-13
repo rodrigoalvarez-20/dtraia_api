@@ -14,7 +14,7 @@ exec_router = APIRouter(prefix="/code")
 
 GNS3_VALIDATION = ["GNS3_URL", "GNS3_TEMPLATES", "http://127.0.0.1:3080/v2"]
 
-@exec_router.post("/")
+@exec_router.post("/execute")
 @dtraia_decorator("api", "users")
 def execute_python_code(code: CodeExecution, request: Request, db = None, log = None):
     request_status = validate_request(request)
@@ -49,7 +49,7 @@ def get_topology_image( project_id:str, request: Request, log = None):
     return JSONResponse(status_code=200, 
                         content={ 
                                  "message": "Se ha generado correctamente la imagen de la topologia", 
-                                 "image": "http://127.0.0.1:8000/static/topologies/{}".format(generated_image) 
+                                 "image": "/api/static/topologies/{}".format(generated_image) 
                             }
                         )
     

@@ -1,3 +1,10 @@
+"""
+DTRAIA_API - Research Project
+Script for the process to take a screenshot of the GNS3 project created with the code executor
+Authors: Rodrigo Alvarez, Adrian Rodriguez, Uriel Perez
+Created on: 2023 
+"""
+
 import platform
 import browsers
 import requests
@@ -7,10 +14,15 @@ import shutil
 import os
 import stat
 
-
+# URL to search the compatible driver for selenium
 DRIVER_URL = "https://googlechromelabs.github.io/chrome-for-testing/latest-patch-versions-per-build-with-downloads.json"
 
 def get_arch_for_driver():
+    """
+    Function to detect the host arch and use it to find the driver version
+    Returns:
+        - arch_name: str
+    """
     pname = platform.system().lower()
     arch = platform.machine().lower()
     if pname == "darwin":
@@ -21,12 +33,24 @@ def get_arch_for_driver():
     return arch_name.replace("-x86_", "")
 
 def get_instaled_browsers():
+    """
+    Function to search the installed browsers in the host
+    Returns:
+        - installed_browsers: List containing the browser type and version in a string
+    """
     installed_browsers = {}
     for b in browsers.browsers():
         installed_browsers[b["browser_type"]] = b["version"]
     return installed_browsers
 
 def auto_install_driver(download_path):
+    """
+    Function to download and install the driver in the desired path
+    Args:
+        - download_path: Full route to where to download the driver file
+    Returns:
+        - drv_path: Full path where the driver is installed
+    """
     user_browsers = get_instaled_browsers()
     chromelike_browser = user_browsers.get("chrome", None)
     if not chromelike_browser:

@@ -10,3 +10,7 @@ class RegisterUserModel(BaseModel):
     nombre: str
     email: str
     password: str
+
+    
+    def model_dump_json(self):
+        return 

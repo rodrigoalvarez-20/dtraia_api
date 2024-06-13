@@ -33,7 +33,7 @@ def register_user(user_data: RegisterUserModel, log = None, db = None):
             headers=response_headers
         )
     
-    created_user_json = json.loads(user_data.model_dump_json())
+    created_user_json = json.loads(user_data.json()) 
     
     created_user_json["createdDate"] = datetime.now().isoformat()
     created_user_json["chatsId"] = []
@@ -265,7 +265,7 @@ def delete_user_chat(chat_id: str, request: Request, log = None, db = None):
     user_chats = user_info["chatsId"]
     list_of_ids = [ x["chat_id"] for x in user_chats ]
     
-    if not chat_id in list_of_ids:
+    if chat_id not in list_of_ids:
         log.warning("El chat {} no se encuentra en el perfil del usuario {}".format(chat_id, user_email))
         return JSONResponse(
             status_code=404,
@@ -288,7 +288,43 @@ def delete_user_chat(chat_id: str, request: Request, log = None, db = None):
             "message": "Se ha eliminado correctamente el chat"
         }
     )
+
+@users_router.post("/delete_profile")
+@dtraia_decorator("api", "users", True)
+def delete_user_chat(request: Request, log = None, db = None):
+    request_status = validate_request(request)
+    if request_status["status"] != 200:
+        return JSONResponse(status_code=request_status["status"], content={"error": request_status["error"]})
+
+    user_email = request_status["email"]
     
+    user_info = db["users"].find_one({ "email": user_email })
+    if not user_info:
+        log.info("Error al eliminar el perfil del usuario {}. El usuario no existe".format(user_email))
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "Ha ocurrido un error al recuperar el perfil del usuario"
+            }
+        )
+    
+    user_chats = user_info["chatsId"]
+    chats_ids = [ x["chat_id"] for x in user_chats ]
+    
+    db["users"].delete_one({ "email": user_email })
+    
+    if len(chats_ids) > 0:
+        db["conversations"].delete_many({ "chat_id": { "$in": chats_ids } })
+
+
+    log.info("Se ha eliminado el perfil del usuario")
+    
+    return JSONResponse(
+        status_code=200,
+        content={
+            "message": "Se ha eliminado correctamente el perfil"
+        }
+    )
     
 @users_router.post("/recover_password")
 @dtraia_decorator("api", "users")
@@ -305,11 +341,7 @@ def recover_password(user_data: LoginUserModel, request: Request, log = None, db
         )
     
     recover_token = generate_login_token(str(user_info["_id"]), user_info["email"])
-    
-    print(recover_token)
-    
-    fmt_url = "http://localhost:5173/recover_password?token={}".format(recover_token)
-    
+    fmt_url = "{}recover_password?token={}".format(request.base_url, recover_token)
     
     send_message(user_info["email"], template_params={"username": user_info["nombre"], "email": user_info["email"], "restore_url": fmt_url})
     

@@ -1,9 +1,16 @@
+"""
+DTRAIA_API - Research Project
+Script for loading the Config file for MongoDB or Email credentials
+Authors: Rodrigo Alvarez, Adrian Rodriguez, Uriel Perez
+Created on: 2023 
+"""
+
 from configparser import ConfigParser
 import os, sys
 
 cfg = ConfigParser()
 
-BASE_CONFIG_ROUTE = os.environ["CONFIG_ROUTE"] if os.environ.get("CONFIG_ROUTE") else "/home/ralvarez22/Documentos/dtraia/dtraia_api"
+BASE_CONFIG_ROUTE = os.environ["CONFIG_ROUTE"] if os.environ.get("CONFIG_ROUTE") else "./dtraia_api"
 
 def get_mongo_creds():
     
